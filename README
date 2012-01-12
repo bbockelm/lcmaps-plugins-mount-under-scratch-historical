@@ -1,0 +1,38 @@
+
+The "lcmaps-plugins-mount-under-scratch" plugin allows the admin to setup
+per-invocation copies of world-writable directories such as /tmp or /var/tmp.
+
+*If* $CWD is writable by the target/payload user and if the admin has
+configured the plugin to mount /tmp and /var/tmp (the default) under scratch,
+then open invocation, the following two directories will be created in $CWD:
+
+tmp
+var/tmp
+
+Further, /tmp will map to $CWD/tmp and /var/tmp will map to $CWD/var/tmp for
+the payload process (and *only* the payload process).
+
+If /tmp or /var/tmp are on a shared-bind-mount (meaning the parent and child
+namespace are identical for a subtree), the most specific subtree will be
+remounted as private.
+
+The above paragraphs are similar for admin-defined directories.
+
+This plugin takes its inspiration from the implementation of the
+MOUNT_UNDER_SCRATCH parameter in Condor, and is necessary for
+MOUNT_UNDER_SCRATCH to work with glexec'd jobs.
+
+If the $CWD directory is not writable, then this plugin does nothing and
+returns a successful exit code.
+
+This code is licensed under the Apache 2.0 license, and is copyrighted by the
+University of Nebraska-Lincoln.
+
+Some aspects are derived from the Condor source code, copyrighted RedHat
+(contributed by me under the Condor Contributor Licensing Agreement) and also
+licensed under the Apache 2.0 license.
+
+Enjoy!
+
+Brian Bockelman
+
