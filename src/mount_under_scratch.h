@@ -1,9 +1,11 @@
 
+#include <sys/types.h>
+
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-mount_under_scratch(uid_t uid, const char *paths[]);
+int mount_under_scratch(uid_t uid, const char * scratch_dir, char *paths[]);
 
 #ifdef __cplusplus
 }

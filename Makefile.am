@@ -45,12 +45,14 @@ EXTRA_DIST = bootstrap lcmaps-plugins-mount-under-scratch.spec
 plugindir = $(MODULEDIR)
 plugin_LTLIBRARIES = \
         liblcmaps_mount_under_scratch.la
-liblcmaps_process_tracking_la_SOURCES = \
+
+liblcmaps_mount_under_scratch_la_SOURCES = \
 	src/lcmaps_mount_under_scratch.c \
 	src/mount_under_scratch.h \
+        src/filesystem_remap.cpp \
 	src/mount_under_scratch.cxx 
 
-liblcmaps_process_tracking_la_LDFLAGS = -avoid-version
+liblcmaps_mount_under_scratch_la_LDFLAGS = -avoid-version
 
 install-data-hook:
 	( \

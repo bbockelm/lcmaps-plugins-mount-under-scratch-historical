@@ -45,6 +45,8 @@ AC_ARG_WITH([moduledir],
 	AC_SUBST([MODULEDIR], ['${libdir}/lcmaps'])
 ])
 
+AC_CHECK_DECLS(MS_PRIVATE, , , [#include <sys/mount.h>])
+
 AC_CONFIG_HEADERS([src/config.h])
 AC_CONFIG_FILES([Makefile])
 AC_OUTPUT

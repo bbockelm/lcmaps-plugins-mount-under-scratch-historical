@@ -17,15 +17,17 @@
  *
  ***************************************************************/
 
-#include "filename_tools.h"
-#include "condor_debug.h"
-#include "MyString.h"
-#include "condor_uid.h"
 #include "filesystem_remap.h"
 
-#if defined(LINUX)
+#include "config.h"
+
+#include <boost/tokenizer.hpp>
+#include <string>
+#include <syslog.h>
+#include <errno.h>
 #include <sys/mount.h>
-#endif
+
+bool is_relative_to_cwd(std::string &) {return true;}
 
 FilesystemRemap::FilesystemRemap() :
 	m_mappings(),
@@ -35,36 +37,31 @@ FilesystemRemap::FilesystemRemap() :
 }
 
 int FilesystemRemap::AddMapping(std::string source, std::string dest) {
-	if (!is_relative_to_cwd(source) && !is_relative_to_cwd(dest)) {
-		std::list<pair_strings>::const_iterator it;
-		for (it = m_mappings.begin(); it != m_mappings.end(); it++) {
-			if ((it->second.length() == dest.length()) && (it->second.compare(dest) == 0)) {
-				dprintf(D_ALWAYS, "Mapping already present for %s.\n", dest.c_str());
-				return -1;
-			}
-		}
-		if (CheckMapping(dest)) {
-			dprintf(D_ALWAYS, "Failed to convert shared mount to private mapping");
-			return -1;
-		}
-		m_mappings.push_back( std::pair<std::string, std::string>(source, dest) );
-	} else {
-		dprintf(D_ALWAYS, "Unable to add mappings for relative directories (%s, %s).\n", source.c_str(), dest.c_str());
+	if (is_relative_to_cwd(source) || is_relative_to_cwd(dest)) {
+		syslog(LOG_ERR, "Unable to add mappings for relative directories (%s, %s).\n", source.c_str(), dest.c_str());
 		return -1;
 	}
+	std::list<pair_strings>::const_iterator it;
+	for (it = m_mappings.begin(); it != m_mappings.end(); it++) {
+		if ((it->second.length() == dest.length()) && (it->second.compare(dest) == 0)) {
+			syslog(LOG_ERR, "Mapping already present for %s.\n", dest.c_str());
+			return -1;
+		}
+	}
+	if (CheckMapping(dest)) {
+		syslog(LOG_ERR, "Failed to convert shared mount to private mapping");
+		return -1;
+	}
+	m_mappings.push_back( std::pair<std::string, std::string>(source, dest) );
 	return 0;
 }
 
 int FilesystemRemap::CheckMapping(const std::string & mount_point) {
-#ifndef HAVE_UNSHARE
-	dprintf(D_ALWAYS, "This system doesn't support remounting of filesystems: %s\n", mount_point.c_str());
-	return -1;
-#else
 	bool best_is_shared = false;
 	size_t best_len = 0;
 	const std::string *best = NULL;
 
-	dprintf(D_FULLDEBUG, "Checking the mapping of mount point %s.\n", mount_point.c_str());
+	syslog(LOG_DEBUG, "Checking the mapping of mount point %s.\n", mount_point.c_str());
 
 	for (std::list<pair_str_bool>::const_iterator it = m_mounts_shared.begin(); it != m_mounts_shared.end(); it++) {
 		std::string first = it->first;
@@ -79,34 +76,33 @@ int FilesystemRemap::CheckMapping(const std::string & mount_point) {
 		return 0;
 	}
 
-	dprintf(D_ALWAYS, "Current mount, %s, is shared.\n", best->c_str());
+	syslog(LOG_WARNING, "Current mount, %s, is shared.\n", best->c_str());
 
+#if defined(HAVE_DECL_MS_PRIVATE) && HAVE_DECL_MS_PRIVATE
 	// Re-mount the mount point as a bind mount, so we can subsequently
 	// re-mount it as private.
-	TemporaryPrivSentry sentry(PRIV_ROOT);
 	if (mount(mount_point.c_str(), mount_point.c_str(), NULL, MS_BIND, NULL)) {	
-		dprintf(D_ALWAYS, "Marking %s as a bind mount failed. (errno=%d, %s)\n", mount_point.c_str(), errno, strerror(errno));
+		syslog(LOG_ERR, "Marking %s as a bind mount failed. (errno=%d, %s)\n", mount_point.c_str(), errno, strerror(errno));
 		return -1;
 	}
 
-#ifdef HAVE_MS_PRIVATE
 	if (mount(mount_point.c_str(), mount_point.c_str(), NULL, MS_PRIVATE, NULL)) {
-		dprintf(D_ALWAYS, "Marking %s as a private mount failed. (errno=%d, %s)\n", mount_point.c_str(), errno, strerror(errno));
+		syslog(LOG_ERR, "Marking %s as a private mount failed. (errno=%d, %s)\n", mount_point.c_str(), errno, strerror(errno));
 		return -1;
 	} else {
-		dprintf(D_FULLDEBUG, "Marking %s as a private mount successful.\n", mount_point.c_str());
+		syslog(LOG_ERR, "Marking %s as a private mount successful.\n", mount_point.c_str());
 	}
+#else
+	syslog(LOG_ERR, "Mount, %s, is shared, but MS_PRIVATE flag doesn't exist.\n", best->c_str());
+	return -1;
 #endif
 
 	return 0;
-#endif
 }
 
 // This is called within the exec
-// IT CANNOT CALL DPRINTF!
 int FilesystemRemap::PerformMappings() {
 	int retval = 0;
-#if defined(LINUX)
 	std::list<pair_strings>::iterator it;
 	for (it = m_mappings.begin(); it != m_mappings.end(); it++) {
 		if (strcmp(it->second.c_str(), "/") == 0) {
@@ -120,7 +116,6 @@ int FilesystemRemap::PerformMappings() {
 			break;
 		}
 	}
-#endif
 	return retval;
 }
 
@@ -166,9 +161,9 @@ std::string FilesystemRemap::RemapDir(std::string target) {
   (11) super options:  per super block options
  */
 
-#define ADVANCE_TOKEN(token, str) { \
-	if ((token = str.GetNextToken(" ", false)) == NULL) { \
-		dprintf(D_ALWAYS, "Invalid line in mountinfo file: %s\n", str.Value()); \
+#define ADVANCE_TOKEN(token, line_str) { \
+	if (token++ != tok.end()) { \
+		syslog(LOG_ERR, "Invalid line in mountinfo file: %s\n", line_str.c_str()); \
 		return; \
 	} \
 }
@@ -176,38 +171,40 @@ std::string FilesystemRemap::RemapDir(std::string target) {
 #define SHARED_STR "shared:"
 
 void FilesystemRemap::ParseMountinfo() {
-	MyString str, str2;
-	const char * token;
 	FILE *fd;
 	bool is_shared;
 
 	if ((fd = fopen("/proc/self/mountinfo", "r")) == NULL) {
 		if (errno == ENOENT) {
-			dprintf(D_FULLDEBUG, "The /proc/self/mountinfo file does not exist; kernel support probably lacking.  Will assume normal mount structure.\n");
+			syslog(LOG_INFO, "The /proc/self/mountinfo file does not exist; kernel support probably lacking.  Will assume normal mount structure.\n");
 		} else {
-			dprintf(D_ALWAYS, "Unable to open the mountinfo file (/proc/self/mountinfo). (errno=%d, %s)\n", errno, strerror(errno));
+			syslog(LOG_ERR, "Unable to open the mountinfo file (/proc/self/mountinfo). (errno=%d, %s)\n", errno, strerror(errno));
 		}
 		return;
 	}
 
-	while (str2.readLine(fd, false)) {
-		str = str2;
-		str.Tokenize();
-		ADVANCE_TOKEN(token, str) // mount ID
-		ADVANCE_TOKEN(token, str) // parent ID
-		ADVANCE_TOKEN(token, str) // major:minor
-		ADVANCE_TOKEN(token, str) // root
-		ADVANCE_TOKEN(token, str) // mount point
-		std::string mp(token);
-		ADVANCE_TOKEN(token, str) // mount options
-		ADVANCE_TOKEN(token, str) // optional fields
+	char line_buffer[1024];
+	std::string token;
+
+	while (fgets(line_buffer, 1024, fd) != NULL) {
+		std::string line_str(line_buffer);
+		boost::tokenizer<> tok(line_str);
+		boost::tokenizer<>::iterator token = tok.begin();
+		ADVANCE_TOKEN(token, line_str) // mount ID
+		ADVANCE_TOKEN(token, line_str) // parent ID
+		ADVANCE_TOKEN(token, line_str) // major:minor
+		ADVANCE_TOKEN(token, line_str) // root
+		ADVANCE_TOKEN(token, line_str) // mount point
+		std::string mp(*token);
+		ADVANCE_TOKEN(token, line_str) // mount options
+		ADVANCE_TOKEN(token, line_str) // optional fields
 		is_shared = false;
-		while (strcmp(token, "-") != 0) {
-			is_shared = is_shared || (strncmp(token, SHARED_STR, strlen(SHARED_STR)) == 0);
-			ADVANCE_TOKEN(token, str)
+		while (strcmp(token->c_str(), "-") != 0) {
+			is_shared = is_shared || (strncmp(token->c_str(), SHARED_STR, strlen(SHARED_STR)) == 0);
+			ADVANCE_TOKEN(token, line_str)
 		}
 		// This seems a bit too chatty - disabling for now.
-		// dprintf(D_FULLDEBUG, "Mount: %s, shared: %d.\n", mp.c_str(), is_shared);
+		// syslog(LOG_DEBUG, "Mount: %s, shared: %d.\n", mp.c_str(), is_shared);
 		m_mounts_shared.push_back(pair_str_bool(mp, is_shared));
 	}
 

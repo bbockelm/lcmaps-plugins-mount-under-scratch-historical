@@ -25,14 +25,10 @@
                             Include header files
 ******************************************************************************/
 
-#include <stdio.h>
+#include <stdlib.h>
 #include <errno.h>
-#include <fcntl.h>
-#include <signal.h>
 #include <string.h>
-#include <sys/stat.h>
-#include <sys/wait.h>
-#include <sys/prctl.h>
+#include <unistd.h>
 
 #include "lcmaps/lcmaps_modules.h"
 #include "lcmaps/lcmaps_cred_data.h"
@@ -43,11 +39,33 @@
 #define PLUGIN_ARG "-path"
 #define PLUGIN_DEFAULT_1 "/tmp"
 #define PLUGIN_DEFAULT_2 "/var/tmp"
+#define TMP_TEMPLATE "/tmp/glexec_mount_under_scratch_XXXXXX"
 
 // I hate globals, but that's how you have to do it in lcmaps argument parsing.
 // Array of strings, the array itself will be null-terminated.
 char ** paths = NULL;
 const char * logstr = "mount-under-scratch";
+
+
+// Return a directory appropriate to use as the scratch dir.
+char * determine_scratch(uid_t uid) {
+  char * scratch_dir;
+  if ((scratch_dir = malloc(strlen(TMP_TEMPLATE)+1)) == NULL) {
+    lcmaps_log(0, "%s: String allocation failued.\n", logstr);
+    return NULL;
+  }
+  strcpy(scratch_dir, TMP_TEMPLATE);
+  if ((scratch_dir = mkdtemp(scratch_dir)) == NULL) {
+    lcmaps_log(0, "%s: mkdtemp in %s failed: (errno=%d) %s\n", logstr, TMP_TEMPLATE, errno, strerror(errno));
+    return NULL;
+  }
+  if (chown(scratch_dir, uid, -1)) {
+    lcmaps_log(0, "%s: Unable to chown the scratch dir %s: (errno=%d) %s\n", logstr, scratch_dir, errno, strerror(errno));
+    free(scratch_dir);
+    return NULL;
+  }
+  return scratch_dir;
+}
 
 /******************************************************************************
 Function:   plugin_initialize
@@ -148,6 +166,7 @@ Returns:
 ******************************************************************************/
 int plugin_run(int argc, lcmaps_argument_t *argv)
 {
+  char * scratch_dir = NULL;
   int uid_count;
   uid_t uid;
 
@@ -156,17 +175,29 @@ int plugin_run(int argc, lcmaps_argument_t *argv)
   uid_array = (uid_t *)getCredentialData(UID, &uid_count);
   if (uid_count != 1) {
     lcmaps_log(0, "%s: No UID set yet; must map to a UID before running the process tracking module.\n", logstr);
-    goto process_tracking_uid_failure;
+    goto uid_failure;
   }
   uid = uid_array[0];
 
-  mount_under_scratch(uid, paths);
+  if ((scratch_dir = determine_scratch(uid)) == NULL) {
+    lcmaps_log(0, "%s: Unable to determine an appropriate scratch directory.\n", logstr);
+    goto scratch_failure;
+  }
 
-  lcmaps_log(0, "%s: monitor process successfully launched\n", logstr);
+  if (mount_under_scratch(uid, scratch_dir, paths)) {
+    lcmaps_log(0, "%s: Remounting directories failed\n", logstr);
+    goto remount_failure;
+  }
+  lcmaps_log(4, "%s: Remounting directories successful\n", logstr);
+
+  free(scratch_dir);
 
   return LCMAPS_MOD_SUCCESS;
 
-process_tracking_uid_failure:
+remount_failure:
+  free(scratch_dir);
+scratch_failure:
+uid_failure:
   return LCMAPS_MOD_FAIL;
 }
 
@@ -193,7 +224,6 @@ int plugin_terminate()
       idx++;
     }
     free(paths);
-    paths
   }
   return LCMAPS_MOD_SUCCESS;
 }

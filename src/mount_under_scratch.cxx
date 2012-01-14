@@ -1,4 +1,8 @@
 
+#include <iostream>
+#include <sstream>
+
+#include <syslog.h>
 #include <sys/stat.h>
 #include <dirent.h>
 #include <sys/types.h>
@@ -7,8 +11,6 @@
 #include <unistd.h>
 
 #include "filesystem_remap.h"
-
-const char * logstr = "mount-under-scratch";
 
 bool isDirectory(const char * path) {
   DIR * dirp = NULL;
@@ -27,7 +29,7 @@ char * get_parent(const char * path) {
     return NULL;
   }
   ssize_t len = last_slash - path + 1;
-  if ((parent = malloc(len + 1)) == NULL) {
+  if ((parent = (char *)malloc(len + 1)) == NULL) {
     return NULL;
   }
   parent[len] = '\0';
@@ -41,7 +43,7 @@ int mkdir_and_parents_if_needed(const char *path, mode_t mode, uid_t uid) {
   int rc = 0;
 
   // UID switching
-  int orig_uid = geteuid();
+  uid_t orig_uid = geteuid();
   if ((orig_uid != uid) && seteuid(uid)) {
     syslog(LOG_ERR, "Unable to set effective UID to %d: (errno=%d) %s.\n", uid, errno, strerror(errno));
     return -1;
@@ -49,8 +51,10 @@ int mkdir_and_parents_if_needed(const char *path, mode_t mode, uid_t uid) {
 
   // Core logic.
   if (mkdir(path, mode)) {
-    const char * parent;
-    if ((errno == ENOTDIR) && ((parent = get_parent(path)) == NULL)) {
+    char * parent;
+    if (errno == EEXIST) {
+      rc = 0;
+    } else if ((errno == ENOTDIR) && ((parent = get_parent(path)) == NULL)) {
       if (mkdir_and_parents_if_needed(parent, mode, uid)) {
         rc = -1;
       } else {
@@ -72,47 +76,51 @@ int mkdir_and_parents_if_needed(const char *path, mode_t mode, uid_t uid) {
   return true;
 }
 
-char * dirscat() {
-  return NULL;
+std::string dirscat(const char *dir1, const char *dir2) {
+  std::stringstream ss;
+  ss << dir1 << "/" << dir2;
+  return ss.str();
 }
 
-bool mount_under_scratch(uid_t uid, const char * working_dir, const char *paths[]) {
+class SyslogManager {
 
-  // TODO: openlog();
+public:
+	SyslogManager(const std::string &ident) {openlog(ident.c_str(), 0, LOG_DAEMON);}
+
+	~SyslogManager() {closelog();}
+
+};
+
+bool mount_under_scratch(uid_t uid, const char * working_dir, char *paths[]) {
+
+  SyslogManager sm("mount-under-scratch");
 
   FilesystemRemap fs_remap;
-  const char * path;
+  char * path;
   int idx;
 
-  for (idx=0; path[idx] != NULL; idx++) {
+  for (idx=0; (paths[idx] != NULL); idx++) {
+    path = paths[idx];
 
     if (!isDirectory(path)) {
-      dprintf(D_ALWAYS, "Unable to add mapping %s -> %s because %s doesn't exist.\n", working_dir.c_str(), next_dir, next_dir);
+      syslog(LOG_ERR, "Unable to add mapping %s -> %s because %s doesn't exist.\n", working_dir, path, path);
       return false;
     }
-    char * full_dir = dirscat(working_dir, next_dir_str);
-    if ((full_dir=dirscat(working_dir, next_dir_str)) == NULL) {
-      dprintf(D_ALWAYS, "Unable to concatenate %s and %s.\n", working_dir.c_str(), next_dir_str.c_str());
-      return false;;
-    }
-
-    std::string full_dir_str(full_dir);
-    delete [] full_dir; full_dir = NULL;
+    std::string full_dir_str = dirscat(working_dir, path);
     if (!mkdir_and_parents_if_needed( full_dir_str.c_str(), S_IRWXU, uid)) {
-      dprintf(D_ALWAYS, "Failed to create scratch directory %s\n", full_dir_str.c_str());
+      syslog(LOG_ERR, "Failed to create scratch directory %s\n", full_dir_str.c_str());
       return false;
     }
-    dprintf(D_FULLDEBUG, "Adding mapping: %s -> %s.\n", full_dir_str.c_str(), next_dir_str.c_str());
-    if (fs_remap->AddMapping(full_dir_str, next_dir_str)) {
+    syslog(LOG_DEBUG, "Adding mapping: %s -> %s.\n", full_dir_str.c_str(), path);
+    if (fs_remap.AddMapping(full_dir_str, path)) {
       // FilesystemRemap object prints out an error message for us.
       return false;
     }
 
   }
 
-cleanup:
-  // TODO: closelog();
-  return true;
+  fs_remap.PerformMappings();
 
+  return true;
 }
 
