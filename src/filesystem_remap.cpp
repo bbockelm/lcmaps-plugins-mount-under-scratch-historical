@@ -27,8 +27,6 @@
 #include <errno.h>
 #include <sys/mount.h>
 
-bool is_relative_to_cwd(std::string &) {return true;}
-
 FilesystemRemap::FilesystemRemap() :
 	m_mappings(),
 	m_mounts_shared()
@@ -37,10 +35,6 @@ FilesystemRemap::FilesystemRemap() :
 }
 
 int FilesystemRemap::AddMapping(std::string source, std::string dest) {
-	if (is_relative_to_cwd(source) || is_relative_to_cwd(dest)) {
-		syslog(LOG_ERR, "Unable to add mappings for relative directories (%s, %s).\n", source.c_str(), dest.c_str());
-		return -1;
-	}
 	std::list<pair_strings>::const_iterator it;
 	for (it = m_mappings.begin(); it != m_mappings.end(); it++) {
 		if ((it->second.length() == dest.length()) && (it->second.compare(dest) == 0)) {
@@ -176,7 +170,7 @@ void FilesystemRemap::ParseMountinfo() {
 
 	if ((fd = fopen("/proc/self/mountinfo", "r")) == NULL) {
 		if (errno == ENOENT) {
-			syslog(LOG_INFO, "The /proc/self/mountinfo file does not exist; kernel support probably lacking.  Will assume normal mount structure.\n");
+			syslog(LOG_DEBUG, "The /proc/self/mountinfo file does not exist; kernel support probably lacking.  Will assume normal mount structure.\n");
 		} else {
 			syslog(LOG_ERR, "Unable to open the mountinfo file (/proc/self/mountinfo). (errno=%d, %s)\n", errno, strerror(errno));
 		}

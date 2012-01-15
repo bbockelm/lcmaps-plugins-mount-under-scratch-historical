@@ -29,6 +29,7 @@
 #include <errno.h>
 #include <string.h>
 #include <unistd.h>
+#include <sched.h>
 
 #include "lcmaps/lcmaps_modules.h"
 #include "lcmaps/lcmaps_cred_data.h"
@@ -179,6 +180,11 @@ int plugin_run(int argc, lcmaps_argument_t *argv)
   }
   uid = uid_array[0];
 
+  if (unshare(CLONE_NEWNS)) {
+    lcmaps_log(0, "%s: Unable to unshare mount namespace: (errno=%d) %s.\n", logstr, errno, strerror(errno));
+    goto unshare_failure;
+  }
+
   if ((scratch_dir = determine_scratch(uid)) == NULL) {
     lcmaps_log(0, "%s: Unable to determine an appropriate scratch directory.\n", logstr);
     goto scratch_failure;
@@ -197,6 +203,7 @@ int plugin_run(int argc, lcmaps_argument_t *argv)
 remount_failure:
   free(scratch_dir);
 scratch_failure:
+unshare_failure:
 uid_failure:
   return LCMAPS_MOD_FAIL;
 }

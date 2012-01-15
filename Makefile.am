@@ -22,7 +22,7 @@
 ##
 #######################################################################
 
-ACLOCAL_AMFLAGS = -I m4
+ACLOCAL_AMFLAGS = -I src
 
 # no-write-strings is done because lcmaps_log uses "char *" instead
 # of "const char *", causing newer compilers to freak
@@ -49,7 +49,8 @@ plugin_LTLIBRARIES = \
 liblcmaps_mount_under_scratch_la_SOURCES = \
 	src/lcmaps_mount_under_scratch.c \
 	src/mount_under_scratch.h \
-        src/filesystem_remap.cpp \
+	src/filesystem_remap.h \
+	src/filesystem_remap.cpp \
 	src/mount_under_scratch.cxx 
 
 liblcmaps_mount_under_scratch_la_LDFLAGS = -avoid-version

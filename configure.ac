@@ -28,10 +28,10 @@ AC_PROG_CXX
 AX_CXX_HEADER_UNORDERED_MAP
 
 # Check LCMAPS location
-#AC_LCMAPS_INTERFACE([basic])
-#if test "x$have_lcmaps_interface" = "xno" ; then
-#    AC_MSG_FAILURE(["no LCMAPS interface found"])
-#fi
+AC_LCMAPS_INTERFACE([basic])
+if test "x$have_lcmaps_interface" = "xno" ; then
+    AC_MSG_FAILURE(["no LCMAPS interface found"])
+fi
 
 dnl allow the setting of a different path for the plug-ins
 dnl Makefiles should set the plugindir to $MODULEDIR.

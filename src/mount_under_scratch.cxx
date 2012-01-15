@@ -11,6 +11,7 @@
 #include <unistd.h>
 
 #include "filesystem_remap.h"
+#include "mount_under_scratch.h"
 
 bool isDirectory(const char * path) {
   DIR * dirp = NULL;
@@ -91,7 +92,7 @@ public:
 
 };
 
-bool mount_under_scratch(uid_t uid, const char * working_dir, char *paths[]) {
+int mount_under_scratch(uid_t uid, const char * working_dir, char *paths[]) {
 
   SyslogManager sm("mount-under-scratch");
 
@@ -104,23 +105,23 @@ bool mount_under_scratch(uid_t uid, const char * working_dir, char *paths[]) {
 
     if (!isDirectory(path)) {
       syslog(LOG_ERR, "Unable to add mapping %s -> %s because %s doesn't exist.\n", working_dir, path, path);
-      return false;
+      return -1;
     }
     std::string full_dir_str = dirscat(working_dir, path);
     if (!mkdir_and_parents_if_needed( full_dir_str.c_str(), S_IRWXU, uid)) {
       syslog(LOG_ERR, "Failed to create scratch directory %s\n", full_dir_str.c_str());
-      return false;
+      return -1;
     }
     syslog(LOG_DEBUG, "Adding mapping: %s -> %s.\n", full_dir_str.c_str(), path);
     if (fs_remap.AddMapping(full_dir_str, path)) {
       // FilesystemRemap object prints out an error message for us.
-      return false;
+      return -1;
     }
 
   }
 
   fs_remap.PerformMappings();
 
-  return true;
+  return 0;
 }
 
