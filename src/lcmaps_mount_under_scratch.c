@@ -38,8 +38,8 @@
 #include "mount_under_scratch.h"
 
 #define PLUGIN_ARG "-path"
-#define PLUGIN_DEFAULT_1 "/tmp"
-#define PLUGIN_DEFAULT_2 "/var/tmp"
+#define PLUGIN_DEFAULT_1 "/var/tmp"
+#define PLUGIN_DEFAULT_2 "/tmp"
 #define TMP_TEMPLATE "/tmp/glexec_mount_under_scratch_XXXXXX"
 
 // I hate globals, but that's how you have to do it in lcmaps argument parsing.

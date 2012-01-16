@@ -26,11 +26,15 @@ The above paragraphs are similar for admin-defined directories.  The admin can
 pass:
 
 -path /var/tmp
--path /tmp
 -path /foo
 -path /bar
+-path /tmp
 
-as arguments in lcmaps.db to the plugin to remap /var/tmp, /tmp, /foo, and /bar
+as arguments in lcmaps.db to the plugin to remap /var/tmp, /tmp, /foo, and
+/bar.  Note that order does matter!  As the source of the mount is in /tmp,
+/tmp must be listed last in any set of mappings.
+
+If an admin passes one path, then /tmp and /var/tmp are not done by default.
 
 This plugin takes its inspiration from the implementation of the
 MOUNT_UNDER_SCRATCH parameter in Condor, and is necessary for

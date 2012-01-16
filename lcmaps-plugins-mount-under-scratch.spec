@@ -1,7 +1,7 @@
 Summary: LCMAPS plugin for creating scratch directories for glexec
 Name: lcmaps-plugins-mount-under-scratch
-Version: 0.0.1
-Release: 0%{?dist}
+Version: 0.0.2
+Release: 1%{?dist}
 License: Public Domain
 Group: System Environment/Libraries
 
@@ -47,3 +47,6 @@ rm -rf $RPM_BUILD_ROOT
 %{_libdir}/lcmaps/lcmaps_mount_under_scratch.mod
 
 %changelog
+* Sun Jan 15 2012 Brian Bockelman <bbockelm@cse.unl.edu> - 0.0.2-1
+- Fix mounting of /var/tmp.
+

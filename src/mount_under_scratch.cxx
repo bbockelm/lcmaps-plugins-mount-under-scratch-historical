@@ -9,7 +9,9 @@
 #include <errno.h>
 #include <unistd.h>
 
+extern "C" {
 #include <lcmaps/lcmaps_log.h>
+}
 
 #include "filesystem_remap.h"
 #include "mount_under_scratch.h"
@@ -58,17 +60,21 @@ int mkdir_and_parents_if_needed(const char *path, mode_t mode, uid_t uid) {
     char * parent;
     if (errno == EEXIST) {
       rc = 0;
-    } else if ((errno == ENOTDIR) && ((parent = get_parent(path)) == NULL)) {
+    } else if ((errno == ENOENT) && ((parent = get_parent(path)) != NULL)) {
       if (mkdir_and_parents_if_needed(parent, mode, uid)) {
+        lcmaps_log(5, "%s: Failed to create parent %s.\n", logstr, path);
         rc = -1;
       } else {
+        lcmaps_log(5, "%s: Now creating path %s.\n", logstr, path);
         rc = mkdir(path, mode);
       }
       free(parent);
     } else {
+      lcmaps_log(5, "%s: Unable to create directory %s: (errno=%d) %s.\n", logstr, path, errno, strerror(errno));
       rc = -1;
     }
   } else {
+    lcmaps_log(5, "%s: Successfully created directory %s.\n", logstr, path);
     rc = 0;
   }
 
@@ -77,7 +83,7 @@ int mkdir_and_parents_if_needed(const char *path, mode_t mode, uid_t uid) {
     lcmaps_log(0, "%s: Unable to return to previous UID %d: (errno=%d) %s.\n", logstr, orig_uid, errno, strerror(errno));
     abort(); // We are definitely the wrong user and can't fix it.  Instant abort!
   }
-  return true;
+  return rc;
 }
 
 std::string dirscat(const char *dir1, const char *dir2) {
@@ -100,7 +106,8 @@ int mount_under_scratch(uid_t uid, const char * working_dir, char *paths[]) {
       return -1;
     }
     std::string full_dir_str = dirscat(working_dir, path);
-    if (!mkdir_and_parents_if_needed( full_dir_str.c_str(), S_IRWXU, uid)) {
+    lcmaps_log(4, "%s: Creating scratch directory %s.\n", logstr, full_dir_str.c_str());
+    if (mkdir_and_parents_if_needed( full_dir_str.c_str(), S_IRWXU, uid)) {
       lcmaps_log(0, "%s: Failed to create scratch directory %s\n", logstr, full_dir_str.c_str());
       return -1;
     }
@@ -112,8 +119,6 @@ int mount_under_scratch(uid_t uid, const char * working_dir, char *paths[]) {
 
   }
 
-  fs_remap.PerformMappings();
-
-  return 0;
+  return fs_remap.PerformMappings();
 }
 

@@ -23,9 +23,14 @@
 
 #include <boost/tokenizer.hpp>
 #include <string>
-#include <syslog.h>
 #include <errno.h>
 #include <sys/mount.h>
+
+extern "C" {
+#include <lcmaps/lcmaps_log.h>
+}
+
+static const char * logstr = "mount-under-scratch";
 
 FilesystemRemap::FilesystemRemap() :
 	m_mappings(),
@@ -38,12 +43,12 @@ int FilesystemRemap::AddMapping(std::string source, std::string dest) {
 	std::list<pair_strings>::const_iterator it;
 	for (it = m_mappings.begin(); it != m_mappings.end(); it++) {
 		if ((it->second.length() == dest.length()) && (it->second.compare(dest) == 0)) {
-			syslog(LOG_ERR, "Mapping already present for %s.\n", dest.c_str());
+			lcmaps_log(0, "%s: Mapping already present for %s.\n", logstr, dest.c_str());
 			return -1;
 		}
 	}
 	if (CheckMapping(dest)) {
-		syslog(LOG_ERR, "Failed to convert shared mount to private mapping");
+		lcmaps_log(0, "%s: Failed to convert shared mount to private mapping", logstr);
 		return -1;
 	}
 	m_mappings.push_back( std::pair<std::string, std::string>(source, dest) );
@@ -55,7 +60,7 @@ int FilesystemRemap::CheckMapping(const std::string & mount_point) {
 	size_t best_len = 0;
 	const std::string *best = NULL;
 
-	syslog(LOG_DEBUG, "Checking the mapping of mount point %s.\n", mount_point.c_str());
+	lcmaps_log(4, "%s: Checking the mapping of mount point %s.\n", logstr, mount_point.c_str());
 
 	for (std::list<pair_str_bool>::const_iterator it = m_mounts_shared.begin(); it != m_mounts_shared.end(); it++) {
 		std::string first = it->first;
@@ -70,43 +75,45 @@ int FilesystemRemap::CheckMapping(const std::string & mount_point) {
 		return 0;
 	}
 
-	syslog(LOG_WARNING, "Current mount, %s, is shared.\n", best->c_str());
+	lcmaps_log(2, "%s: Current mount, %s, is shared.\n", logstr, best->c_str());
 
 #if defined(HAVE_DECL_MS_PRIVATE) && HAVE_DECL_MS_PRIVATE
 	// Re-mount the mount point as a bind mount, so we can subsequently
 	// re-mount it as private.
 	if (mount(mount_point.c_str(), mount_point.c_str(), NULL, MS_BIND, NULL)) {	
-		syslog(LOG_ERR, "Marking %s as a bind mount failed. (errno=%d, %s)\n", mount_point.c_str(), errno, strerror(errno));
+		lcmaps_log(0, "%s: Marking %s as a bind mount failed. (errno=%d, %s)\n", logstr, mount_point.c_str(), errno, strerror(errno));
 		return -1;
 	}
 
 	if (mount(mount_point.c_str(), mount_point.c_str(), NULL, MS_PRIVATE, NULL)) {
-		syslog(LOG_ERR, "Marking %s as a private mount failed. (errno=%d, %s)\n", mount_point.c_str(), errno, strerror(errno));
+		lcmaps_log(0, "%s: Marking %s as a private mount failed. (errno=%d, %s)\n", logstr, mount_point.c_str(), errno, strerror(errno));
 		return -1;
 	} else {
-		syslog(LOG_ERR, "Marking %s as a private mount successful.\n", mount_point.c_str());
+		lcmaps_log(0, "%s: Marking %s as a private mount successful.\n", logstr, mount_point.c_str());
 	}
 #else
-	syslog(LOG_ERR, "Mount, %s, is shared, but MS_PRIVATE flag doesn't exist.\n", best->c_str());
+	lcmaps_log(0, "%s: Mount, %s, is shared, but MS_PRIVATE flag doesn't exist.\n", logstr, best->c_str());
 	return -1;
 #endif
 
 	return 0;
 }
 
-// This is called within the exec
 int FilesystemRemap::PerformMappings() {
 	int retval = 0;
 	std::list<pair_strings>::iterator it;
 	for (it = m_mappings.begin(); it != m_mappings.end(); it++) {
 		if (strcmp(it->second.c_str(), "/") == 0) {
 			if ((retval = chroot(it->first.c_str()))) {
+				lcmaps_log(0, "%s: Calling chroot to %s failed: (errno=%d) %s.\n", logstr, it->first.c_str(), errno, strerror(errno));
 				break;
 			}
 			if ((retval = chdir("/"))) {
+				lcmaps_log(0, "%s: Calling chdir(\"/\") into chroot %s failed: (errno=%d) %s.\n", logstr, it->first.c_str(), errno, strerror(errno));
 				break;
 			}
 		} else if ((retval = mount(it->first.c_str(), it->second.c_str(), NULL, MS_BIND, NULL))) {
+			lcmaps_log(0, "%s: Mount %s -> %s failed: (errno=%d) %s.\n", logstr, it->first.c_str(), it->second.c_str(), errno, strerror(errno));
 			break;
 		}
 	}
@@ -157,7 +164,7 @@ std::string FilesystemRemap::RemapDir(std::string target) {
 
 #define ADVANCE_TOKEN(token, line_str) { \
 	if (token++ != tok.end()) { \
-		syslog(LOG_ERR, "Invalid line in mountinfo file: %s\n", line_str.c_str()); \
+		lcmaps_log(0, "%s: Invalid line in mountinfo file: %s\n", logstr, line_str.c_str()); \
 		return; \
 	} \
 }
@@ -170,9 +177,9 @@ void FilesystemRemap::ParseMountinfo() {
 
 	if ((fd = fopen("/proc/self/mountinfo", "r")) == NULL) {
 		if (errno == ENOENT) {
-			syslog(LOG_DEBUG, "The /proc/self/mountinfo file does not exist; kernel support probably lacking.  Will assume normal mount structure.\n");
+			lcmaps_log(5, "%s: The /proc/self/mountinfo file does not exist; kernel support probably lacking.  Will assume normal mount structure.\n", logstr);
 		} else {
-			syslog(LOG_ERR, "Unable to open the mountinfo file (/proc/self/mountinfo). (errno=%d, %s)\n", errno, strerror(errno));
+			lcmaps_log(0, "%s: Unable to open the mountinfo file (/proc/self/mountinfo). (errno=%d, %s)\n", logstr, errno, strerror(errno));
 		}
 		return;
 	}
