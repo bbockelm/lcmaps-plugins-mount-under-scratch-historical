@@ -49,7 +49,7 @@ const char * logstr = "mount-under-scratch";
 
 
 // Return a directory appropriate to use as the scratch dir.
-char * determine_scratch(uid_t uid) {
+char * determine_scratch(uid_t uid, gid_t gid) {
   char * scratch_dir;
   if ((scratch_dir = malloc(strlen(TMP_TEMPLATE)+1)) == NULL) {
     lcmaps_log(0, "%s: String allocation failued.\n", logstr);
@@ -60,7 +60,7 @@ char * determine_scratch(uid_t uid) {
     lcmaps_log(0, "%s: mkdtemp in %s failed: (errno=%d) %s\n", logstr, TMP_TEMPLATE, errno, strerror(errno));
     return NULL;
   }
-  if (chown(scratch_dir, uid, -1)) {
+  if (chown(scratch_dir, uid, gid)) {
     lcmaps_log(0, "%s: Unable to chown the scratch dir %s: (errno=%d) %s\n", logstr, scratch_dir, errno, strerror(errno));
     free(scratch_dir);
     return NULL;
@@ -168,29 +168,38 @@ Returns:
 int plugin_run(int argc, lcmaps_argument_t *argv)
 {
   char * scratch_dir = NULL;
-  int uid_count;
+  int uid_count = 0, gid_count = 0;
   uid_t uid;
+  gid_t gid;
 
-  uid_count = 0;
   uid_t * uid_array;
   uid_array = (uid_t *)getCredentialData(UID, &uid_count);
   if (uid_count != 1) {
-    lcmaps_log(0, "%s: No UID set yet; must map to a UID before running the process tracking module.\n", logstr);
+    lcmaps_log(0, "%s: No UID set yet; must map to a UID before running the "
+      "mount under scratch module.\n", logstr);
     goto uid_failure;
   }
   uid = uid_array[0];
+
+  gid_t *gid_array = (gid_t *)getCredentialData(PRI_GID, &gid_count);
+  if (gid_count != 1) {
+    lcmaps_log(0, "%s: No primary GID set yet; must map to a GID before running"
+      " the mount under scratch module.\n", logstr);
+    goto gid_failure;
+  }
+  gid = gid_array[0];
 
   if (unshare(CLONE_NEWNS)) {
     lcmaps_log(0, "%s: Unable to unshare mount namespace: (errno=%d) %s.\n", logstr, errno, strerror(errno));
     goto unshare_failure;
   }
 
-  if ((scratch_dir = determine_scratch(uid)) == NULL) {
+  if ((scratch_dir = determine_scratch(uid, gid)) == NULL) {
     lcmaps_log(0, "%s: Unable to determine an appropriate scratch directory.\n", logstr);
     goto scratch_failure;
   }
 
-  if (mount_under_scratch(uid, scratch_dir, paths)) {
+  if (mount_under_scratch(uid, gid, scratch_dir, paths)) {
     lcmaps_log(0, "%s: Remounting directories failed\n", logstr);
     goto remount_failure;
   }
@@ -204,6 +213,7 @@ remount_failure:
   free(scratch_dir);
 scratch_failure:
 unshare_failure:
+gid_failure:
 uid_failure:
   return LCMAPS_MOD_FAIL;
 }
