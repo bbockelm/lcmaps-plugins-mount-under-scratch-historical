@@ -22,6 +22,7 @@
 #include "config.h"
 
 #include <boost/tokenizer.hpp>
+#include <string.h>
 #include <string>
 #include <errno.h>
 #include <sys/mount.h>

@@ -47,7 +47,8 @@ bool isDirectory(const char * path) {
 }
 
 char * get_parent(const char * path) {
-  char * last_slash, * parent;
+  const char * last_slash;
+  char * parent;
   if ((last_slash = strrchr(path, '/')) == NULL) {
     return NULL;
   }
