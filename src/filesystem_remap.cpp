@@ -164,13 +164,15 @@ std::string FilesystemRemap::RemapDir(std::string target) {
  */
 
 #define ADVANCE_TOKEN(token, line_str) { \
-	if (token++ != tok.end()) { \
+	if (token++ == tok.end()) { \
 		lcmaps_log(0, "%s: Invalid line in mountinfo file: %s\n", logstr, line_str.c_str()); \
 		return; \
 	} \
 }
 
 #define SHARED_STR "shared:"
+
+typedef boost::tokenizer<boost::char_separator<char> > tokenizer;
 
 void FilesystemRemap::ParseMountinfo() {
 	FILE *fd;
@@ -190,8 +192,9 @@ void FilesystemRemap::ParseMountinfo() {
 
 	while (fgets(line_buffer, 1024, fd) != NULL) {
 		std::string line_str(line_buffer);
-		boost::tokenizer<> tok(line_str);
-		boost::tokenizer<>::iterator token = tok.begin();
+		boost::char_separator<char> sep(", ");
+		tokenizer tok(line_str, sep);
+		tokenizer::iterator token = tok.begin();
 		ADVANCE_TOKEN(token, line_str) // mount ID
 		ADVANCE_TOKEN(token, line_str) // parent ID
 		ADVANCE_TOKEN(token, line_str) // major:minor
